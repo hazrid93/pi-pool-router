@@ -1,5 +1,5 @@
 {
-  "name": "pool-router",
+  "name": "pi-pool-router",
   "version": "1.0.0",
   "description": "Pi/omp in-process extension: cache-affinity hash-ring routing with latency pre-filter for LLM provider pools",
   "type": "module",

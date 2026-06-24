@@ -128,17 +128,17 @@ All entries with the same `public_model` are merged into one pool. Each member h
 
 **From GitHub (omp):**
 ```bash
-omp plugin install github:hazrid93/pool-router
+omp plugin install github:hazrid93/pi-pool-router
 ```
 
 **From GitHub (pi):**
 ```bash
-pi plugin install github:hazrid93/pool-router
+pi plugin install github:hazrid93/pi-pool-router
 ```
 
 **Local dev:**
 ```bash
-omp plugin link ./path/to/pool-router
+omp plugin link ./path/to/pi-pool-router
 ```
 
 > Marketplace installs do NOT load extension modules — use `github:` spec or `plugin link` for local dev.
