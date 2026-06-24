@@ -15,6 +15,27 @@ Cache-affinity spreads by **content**, not time:
 
 The ring is a **sorted array** of backend hash positions. "Walking clockwise" means taking the next bigger hash in the sorted list.
 
+```
+                    ┌─────────────────────────────┐
+                    │     Sorted hash ring         │
+                    │  (150 virtual nodes/backend)  │
+                    └─────────────────────────────┘
+
+     hash 0                                              hash MAX
+      │                                                      │
+      ▼                                                      ▼
+      ┌────┬────┬────┬────┬────┬────┬────┬────┬────┬────┐
+      │ A₁ │ B₁ │ A₂ │ C₁ │ B₂ │ A₃ │ C₂ │ B₃ │ A₄ │ C₃ │  ...
+      └────┴────┴────┴────┴────┴────┴────┴────┴────┴────┘
+                    ▲                          ▲
+                    │                          │
+              prompt hash              first node ≥ hash
+              (sha256 of              → backend A (walk
+               prefix[:4096])            clockwise from here)
+```
+
+A = backend 1, B = backend 2, C = backend 3. Same prompt → same hash → same position → same backend. If that backend is saturated or in cooldown, walk clockwise to the next.
+
 ### Building the ring
 
 Each backend is hashed to multiple positions (virtual nodes) for even distribution:
@@ -72,9 +93,7 @@ This excludes slow/degraded backends from the ring while preserving cache locali
 | Strategy | Default | Description |
 |---|---|---|
 | `cache-affinity` | ✅ | Consistent hash ring on prompt prefix + latency pre-filter |
-| `latency` | | Lowest EWMA latency, ties broken by least in-flight |
 | `round-robin` | | Rotate through eligible backends |
-| `weighted` | | Weighted random, weight ∝ `member.weight × 1/(latency+1)` |
 
 ## Setup
 
@@ -100,7 +119,6 @@ Place at `~/.omp/agent/pools.json` (omp) or `~/.pi/pools.json` (pi):
           "apiKey": "sk-litellm-xxx",
           "api": "openai-completions",
           "model": "glm-5.2",
-          "weight": 1,
           "contextWindow": 131072,
           "maxTokens": 16384,
           "reasoning": true
@@ -111,7 +129,6 @@ Place at `~/.omp/agent/pools.json` (omp) or `~/.pi/pools.json` (pi):
           "apiKey": "sk-litellm-xxx",
           "api": "openai-completions",
           "model": "glm-5.2",
-          "weight": 1,
           "contextWindow": 131072,
           "maxTokens": 16384,
           "reasoning": true
@@ -232,7 +249,7 @@ Request: "Summarize this code..." (model: pooled/glm-5.2)
 | `latency_buffer` | 0.1 | Keep backends within this fraction of the best latency |
 | `hash_prefix_chars` | 4096 | Prompt prefix chars to hash for cache affinity |
 | `max_in_flight_per_backend` | 3 | Overflow cap — walk to next backend if saturated |
-| `ttl_seconds` | 3600 | Latency sample TTL (for `latency` strategy) |
+| `ttl_seconds` | 3600 | Latency sample TTL — stale samples reset to default |
 
 ### Member
 
@@ -243,10 +260,10 @@ Request: "Summarize this code..." (model: pooled/glm-5.2)
 | `apiKey` | string | required | API key for this backend |
 | `api` | string | `openai-completions` | pi-ai API id |
 | `model` | string | pool's model | Model id override |
-| `weight` | number | 1 | Weight for `weighted` strategy |
 | `contextWindow` | number | 128000 | Context window in tokens |
 | `maxTokens` | number | 16384 | Max output tokens |
 | `reasoning` | boolean | false | Whether model supports reasoning |
+| `input` | array | `["text"]` | Input modalities — `["text"]`, `["text", "image"]`, or `["image"]` |
 | `headers` | object | | Extra headers to send |
 
 ## License

@@ -87,6 +87,23 @@ export class StateStore {
     b.lastLatencyAt = Date.now();
   }
 
+  /**
+   * Reset EWMA latency to default for backends whose last sample is older than ttlMs.
+   * Stale latency data misleads the pre-filter — a backend that was slow an hour ago
+   * may be fast now. Called by the router before the latency pre-filter runs.
+   */
+  expireStaleLatency(poolModel: string, ttlMs: number): void {
+    if (ttlMs <= 0) return;
+    const now = Date.now();
+    for (const b of this.getBackends(poolModel)) {
+      if (b.lastLatencyAt > 0 && now - b.lastLatencyAt > ttlMs) {
+        b.ewmaLatencyMs = DEFAULT_LATENCY_MS;
+        b.latencySamples = 0;
+        b.lastLatencyAt = 0;
+      }
+    }
+  }
+
   recordSuccess(key: string, latencyMs: number): void {
     const b = this.backends.get(key);
     if (!b) return;

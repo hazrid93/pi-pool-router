@@ -3,9 +3,7 @@
  *
  * Strategies:
  * 1. cache-affinity (DEFAULT) — consistent hash ring on prompt prefix + latency pre-filter
- * 2. latency           — lowest EWMA latency with buffer
- * 3. round-robin       — rotate through eligible backends
- * 4. weighted          — weighted random selection
+ * 2. round-robin       — rotate through eligible backends
  *
  * The hash ring is a sorted array of backend hash positions.
  * "Walking clockwise" = binary search for the first position >= prompt hash, with wraparound.
@@ -107,7 +105,8 @@ export class Router {
   select(
     pool: Pool,
     promptPrefix: string,
-    now: number = Date.now()
+    now: number = Date.now(),
+    tried: Set<string> = new Set(),
   ): SelectionResult | null {
     const eligible = this.state.getEligible(pool.public_model);
     if (eligible.length === 0) return null;
@@ -116,17 +115,34 @@ export class Router {
     const latencyBuffer = args.latency_buffer ?? 0.1;
     const hashPrefixChars = args.hash_prefix_chars ?? 4096;
     const maxInFlight = args.max_in_flight_per_backend ?? 3;
+    const ttlMs = (args.ttl_seconds ?? 3600) * 1000;
+
+    // Build the exclude set: tried (failed) + saturated backends
+    const exclude = new Set<string>(tried);
+    for (const b of eligible) {
+      if (b.inFlight >= maxInFlight) {
+        exclude.add(this.state.key(b.pool.public_model, b.member.id));
+      }
+    }
+    // Expire stale latency samples before the pre-filter runs
+    this.state.expireStaleLatency(pool.public_model, ttlMs);
+
 
     // ── Latency pre-filter ──
     // Find the best (lowest) latency among eligible backends.
     // Keep only those within `latencyBuffer` of the best.
     // This excludes slow/degraded backends before the strategy runs.
-    let filtered = eligible;
-    if (latencyBuffer > 0 && eligible.length > 1) {
-      const best = Math.min(...eligible.map((b) => b.ewmaLatencyMs));
+    let filtered = eligible.filter((b) => !exclude.has(this.state.key(b.pool.public_model, b.member.id)));
+    if (filtered.length === 0) {
+      // All excluded via tried+saturated — fall back to eligible minus tried
+      filtered = eligible.filter((b) => !tried.has(this.state.key(b.pool.public_model, b.member.id)));
+      if (filtered.length === 0) return null;  // every backend tried
+    }
+    if (latencyBuffer > 0 && filtered.length > 1) {
+      const best = Math.min(...filtered.map((b) => b.ewmaLatencyMs));
       const threshold = best * (1 + latencyBuffer);
-      filtered = eligible.filter((b) => b.ewmaLatencyMs <= threshold);
-      if (filtered.length === 0) filtered = eligible;  // safety: don't filter everything
+      const latFiltered = filtered.filter((b) => b.ewmaLatencyMs <= threshold);
+      if (latFiltered.length > 0) filtered = latFiltered;  // safety: don't filter everything
     }
 
     // ── Strategy dispatch ──
@@ -141,63 +157,17 @@ export class Router {
         // Different prompts → different positions → different backends → natural spread.
         this.ring.rebuild(filtered);
         const promptHash = this.hashPrompt(promptPrefix, hashPrefixChars);
-        // Exclude backends that are at max in-flight capacity
-        const saturated = new Set<string>();
-        for (const b of filtered) {
-          if (b.inFlight >= maxInFlight) {
-            saturated.add(this.state.key(b.pool.public_model, b.member.id));
-          }
-        }
-        backendKey = this.ring.select(promptHash, saturated);
-        break;
-      }
-
-      case "latency": {
-        // Pick the backend with the lowest EWMA latency.
-        // Ties broken by least in-flight requests.
-        let best: BackendState | null = null;
-        for (const b of filtered) {
-          if (!best || b.ewmaLatencyMs < best.ewmaLatencyMs ||
-            (b.ewmaLatencyMs === best.ewmaLatencyMs && b.inFlight < best.inFlight)) {
-            best = b;
-          }
-        }
-        if (best) {
-          backendKey = this.state.key(best.pool.public_model, best.member.id);
-        }
+        backendKey = this.ring.select(promptHash, exclude);
         break;
       }
 
       case "round-robin": {
-        // Rotate through eligible backends.
+        // Rotate through filtered backends.
         const idx = this.rrCursor.get(pool.public_model) ?? 0;
         const chosen = filtered[idx % filtered.length];
         this.rrCursor.set(pool.public_model, (idx + 1) % filtered.length);
         if (chosen) {
           backendKey = this.state.key(chosen.pool.public_model, chosen.member.id);
-        }
-        break;
-      }
-
-      case "weighted": {
-        // Weighted random selection.
-        // Weight = member.weight × (1 / (ewmaLatencyMs + 1)) — faster backends get more traffic.
-        const totalWeight = filtered.reduce(
-          (sum, b) => sum + (b.member.weight ?? 1) * (1 / (b.ewmaLatencyMs + 1)),
-          0
-        );
-        let r = Math.random() * totalWeight;
-        for (const b of filtered) {
-          const w = (b.member.weight ?? 1) * (1 / (b.ewmaLatencyMs + 1));
-          r -= w;
-          if (r <= 0) {
-            backendKey = this.state.key(b.pool.public_model, b.member.id);
-            break;
-          }
-        }
-        if (!backendKey && filtered.length > 0) {
-          const b = filtered[0];
-          backendKey = this.state.key(b.pool.public_model, b.member.id);
         }
         break;
       }

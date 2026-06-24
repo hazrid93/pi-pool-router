@@ -22,7 +22,6 @@ export class HealthChecker {
 
   constructor(
     private state: StateStore,
-    private logger?: { warn?: (msg: string, meta?: unknown) => void; debug?: (msg: string, meta?: unknown) => void }
   ) {}
 
   start(): void {
@@ -61,15 +60,14 @@ export class HealthChecker {
 
       if (res.ok) {
         this.state.markHealthy(key);
-        this.logger?.debug?.(`Health check OK: ${backend.member.id}`, { url, status: res.status });
       } else {
-        // Non-2xx — treat as unhealthy but don't enter cooldown immediately
-        this.logger?.warn?.(`Health check non-2xx: ${backend.member.id}`, { url, status: res.status });
+        // Non-2xx — record failure (accumulates toward cooldown)
+        this.state.recordFailure(key);
       }
     } catch (err) {
       // Network error or timeout — record as failure
       this.state.recordFailure(key);
-      this.logger?.warn?.(`Health check failed: ${backend.member.id}`, {
+      console.warn(`[pool-router] Health check failed: ${backend.member.id}`, {
         url,
         error: err instanceof Error ? err.message : String(err),
       });

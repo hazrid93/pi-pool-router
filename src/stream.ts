@@ -67,11 +67,35 @@ function toOpenAIMessages(messages: Message[]): Array<Record<string, unknown>> {
         content: msg.content.map((c) => c.type === "text" ? c.text : "").join(""),
       };
     }
+
+    if (msg.role === "assistant") {
+      // AssistantMessage content is (TextContent | ThinkingContent | ToolCall)[]
+      // OpenAI format: content (text) + tool_calls array
+      const textParts: string[] = [];
+      const toolCalls: Array<{ id: string; type: "function"; function: { name: string; arguments: string } }> = [];
+      for (const c of msg.content) {
+        if (c.type === "text") {
+          textParts.push(c.text);
+        } else if (c.type === "toolCall") {
+          toolCalls.push({
+            id: c.id,
+            type: "function",
+            function: { name: c.name, arguments: JSON.stringify(c.arguments) },
+          });
+        }
+        // thinking content is not sent to OpenAI-compatible APIs
+      }
+      const result: Record<string, unknown> = { role: "assistant", content: textParts.join("") || null };
+      if (toolCalls.length > 0) result.tool_calls = toolCalls;
+      return result;
+    }
+
+    // UserMessage: content is string | (TextContent | ImageContent)[]
     const content = typeof msg.content === "string"
       ? msg.content
       : msg.content.map((c) => {
           if (c.type === "text") return { type: "text", text: c.text };
-          if (c.type === "thinking") return { type: "thinking", thinking: c.thinking };
+          if (c.type === "image") return { type: "image_url", image_url: { url: `data:${c.mimeType};base64,${c.data}` } };
           return null;
         }).filter(Boolean);
 
@@ -398,7 +422,10 @@ export function createStreamHandler(
     if (options?.temperature !== undefined) body.temperature = options.temperature;
     if (options?.maxTokens !== undefined) body.max_tokens = options.maxTokens;
     if (options?.reasoning) {
-      body.reasoning_effort = options.reasoning === "xhigh" ? "max" : options.reasoning;
+      // OpenAI reasoning_effort accepts "low" | "medium" | "high".
+      // pi-ai ThinkingLevel adds "minimal" (map to "low") and "xhigh" (map to "high").
+      const effortMap: Record<string, string> = { minimal: "low", low: "low", medium: "medium", high: "high", xhigh: "high" };
+      body.reasoning_effort = effortMap[options.reasoning] ?? "medium";
     }
 
     // ── Failover loop (async, pushes into stream) ──
@@ -411,7 +438,7 @@ export function createStreamHandler(
       let lastError: Error | null = null;
 
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        const selection = router.select(pool!, promptPrefix);
+        const selection = router.select(pool!, promptPrefix, Date.now(), tried);
         if (!selection) break;
 
         const { backendKey, backend } = selection;

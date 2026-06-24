@@ -51,7 +51,7 @@ export default function poolRouter(pi: ExtensionAPI): void {
       id: modelId,
       name: modelId,
       reasoning: firstMember.reasoning ?? false,
-      input: ["text" as const],
+      input: firstMember.input ?? ["text" as const],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow: firstMember.contextWindow ?? 128000,
       maxTokens: firstMember.maxTokens ?? 16384,

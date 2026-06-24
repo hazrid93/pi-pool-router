@@ -11,19 +11,19 @@ import { homedir } from "node:os";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-export type RoutingStrategy = "cache-affinity" | "latency" | "round-robin" | "weighted";
+export type RoutingStrategy = "cache-affinity" | "round-robin";
 
 export interface BackendMember {
   id: string;           // unique backend id within the pool
   baseUrl: string;      // e.g. http://127.0.0.1:4000/v1
   apiKey: string;       // API key for this backend
   api: string;          // pi-ai api id, e.g. "openai-completions"
-  weight?: number;      // for weighted strategy (default 1)
   model?: string;       // model id override (default: pool's public_model)
   headers?: Record<string, string>;
   contextWindow?: number;
   maxTokens?: number;
   reasoning?: boolean;
+  input?: ("text" | "image")[];  // input modalities (default: ["text"])
 }
 
 export interface Pool {
@@ -62,6 +62,9 @@ export function validateConfig(config: unknown): PoolConfig {
     if (!publicModel) {
       throw new Error(`pools.json: pool[${i}] missing 'public_model'`);
     }
+    if (!publicModel.includes("/")) {
+      throw new Error(`pools.json: pool '${publicModel}' must use format 'pooled/<model>' — missing '/'`);
+    }
     if (seenPublicModels.has(publicModel)) {
       // Entries with the same public_model are merged into one pool
       const existing = pools.find((p) => p.public_model === publicModel);
@@ -73,7 +76,12 @@ export function validateConfig(config: unknown): PoolConfig {
     }
     seenPublicModels.add(publicModel);
 
-    const strategy = (raw.strategy as RoutingStrategy) ?? "cache-affinity";
+    const VALID_STRATEGIES = new Set<string>(["cache-affinity", "round-robin"]);
+    const rawStrategy = raw.strategy as string | undefined;
+    if (rawStrategy !== undefined && !VALID_STRATEGIES.has(rawStrategy)) {
+      throw new Error(`pools.json: pool '${publicModel}' has invalid strategy '${rawStrategy}' — must be one of: ${[...VALID_STRATEGIES].join(", ")}`);
+    }
+    const strategy = (rawStrategy as RoutingStrategy) ?? "cache-affinity";
     const strategyArgs = raw.strategy_args as Pool["strategy_args"];
     const members = raw.members as BackendMember[];
 
@@ -87,7 +95,6 @@ export function validateConfig(config: unknown): PoolConfig {
       if (!m.baseUrl) throw new Error(`pools.json: pool '${publicModel}' member '${m.id}' missing 'baseUrl'`);
       if (!m.apiKey) throw new Error(`pools.json: pool '${publicModel}' member '${m.id}' missing 'apiKey'`);
       if (!m.api) m.api = "openai-completions";
-      if (m.weight === undefined) m.weight = 1;
       if (m.model === undefined) m.model = publicModel.replace(/^pooled\//, "");
     }
 
