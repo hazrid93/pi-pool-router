@@ -4,6 +4,12 @@
   "description": "Pi/omp in-process extension that pools multiple LLM backends behind a single provider — handles routing, failover, health checks, and latency-aware selection",
   "type": "module",
   "main": "src/index.ts",
+  "omp": {
+    "extensions": ["./src/index.ts"]
+  },
+  "pi": {
+    "extensions": ["./src/index.ts"]
+  },
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
