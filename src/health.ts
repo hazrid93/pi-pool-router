@@ -1,24 +1,29 @@
 /**
  * health.ts — background health checker
  *
- * Periodically pings each backend's /health endpoint (or a lightweight
- * models list call). If a backend responds, it's marked healthy.
- * If it times out or errors, consecutive failures accumulate.
- * After MAX_FAILS consecutive failures, the backend enters cooldown.
+ * Periodically pings each backend's health endpoint if one is configured.
+ * If a backend responds 2xx, it's marked healthy. Non-2xx or network errors
+ * accumulate consecutive failures toward cooldown.
  *
- * This complements the request-path failure tracking in state.ts:
- * health checks catch backends that go down between requests,
- * so the router never sends traffic to a dead provider.
+ * Health checks are OFF by default — only backends with a `healthPath` field
+ * in pools.json are checked. Commercial OpenAI-compatible APIs (NeuralWatt,
+ * GetLilac, Synthetic) typically don't expose /health, so forcing checks
+ * would mark them unhealthy after 3 failed pings.
+ *
+ * For LiteLLM proxy backends, set `"healthPath": "/health"` per member.
  */
 
 import type { StateStore } from "./state.js";
+import type { BackendState } from "./state.js";
 
 const HEALTH_CHECK_INTERVAL_MS = 60_000;  // 60 seconds
 const HEALTH_TIMEOUT_MS = 5_000;
-const HEALTH_PATH = "/health";  // LiteLLM proxy convention
+
+/** Numeric handle from setInterval in Node.js */
+type IntervalHandle = number;
 
 export class HealthChecker {
-  private timer: ReturnType<typeof setInterval> | null = null;
+  private timer: IntervalHandle | null = null;
 
   constructor(
     private state: StateStore,
@@ -26,7 +31,7 @@ export class HealthChecker {
 
   start(): void {
     if (this.timer) return;
-    this.timer = setInterval(() => this.checkAll().catch(() => {}), HEALTH_CHECK_INTERVAL_MS);
+    this.timer = setInterval(() => this.checkAll().catch(() => {}), HEALTH_CHECK_INTERVAL_MS) as unknown as IntervalHandle;
     // Run one immediate check
     this.checkAll().catch(() => {});
   }
@@ -40,12 +45,17 @@ export class HealthChecker {
 
   private async checkAll(): Promise<void> {
     const backends = this.state.getAllStates();
-    await Promise.allSettled(backends.map((b) => this.checkOne(b)));
+    // Only check backends that have a healthPath configured
+    const checkable = backends.filter((b) => b.member.healthPath);
+    await Promise.allSettled(checkable.map((b) => this.checkOne(b)));
   }
 
-  private async checkOne(backend: import("./state.js").BackendState): Promise<void> {
+  private async checkOne(backend: BackendState): Promise<void> {
     const key = this.state.key(backend.pool.public_model, backend.member.id);
-    const url = backend.member.baseUrl.replace(/\/v1\/?$/, "") + HEALTH_PATH;
+    const healthPath = backend.member.healthPath;
+    if (!healthPath) return;
+
+    const url = backend.member.baseUrl.replace(/\/v1\/?$/, "") + healthPath;
 
     try {
       const controller = new AbortController();
@@ -53,7 +63,7 @@ export class HealthChecker {
 
       const res = await fetch(url, {
         method: "GET",
-        headers: backend.member.headers ?? {},
+        headers: { ...backend.member.headers },
         signal: controller.signal,
       });
       clearTimeout(timeout);

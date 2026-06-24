@@ -1,5 +1,5 @@
 /**
- * config.ts — pools.json loader with zod validation
+ * config.ts — pools.json loader with runtime validation
  *
  * Loads pool configuration from ~/.omp/agent/pools.json (omp) or ~/.pi/pools.json (pi).
  * The config is fully self-contained — no reference to models.yml.
@@ -24,6 +24,7 @@ export interface BackendMember {
   maxTokens?: number;
   reasoning?: boolean;
   input?: ("text" | "image")[];  // input modalities (default: ["text"])
+  healthPath?: string;  // health check path (default: none — health checks off for this backend)
 }
 
 export interface Pool {
