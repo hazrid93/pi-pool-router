@@ -83,4 +83,44 @@ export default function poolRouter(pi: ExtensionAPI): void {
     health.stop();
     console.debug("[pool-router] health checker stopped");
   });
+  // ── /pool-status slash command ─────────────────────────────────────────────
+  // handler receives args as a single string (not string[]), per the RegisteredCommand type
+  pi.registerCommand("pool-status", {
+    description: "Show pool router backend status (health, latency, request counts)",
+    handler: async (_args: string, ctx) => {
+      const backends = state.getAllStates();
+      const lines: string[] = ["Pool Router Status", "─────────────────────"];
+
+      // Group by pool
+      const byPool = new Map<string, typeof backends>();
+      for (const b of backends) {
+        const arr = byPool.get(b.pool.public_model) ?? [];
+        arr.push(b);
+        byPool.set(b.pool.public_model, arr);
+      }
+
+      for (const [poolModel, members] of byPool) {
+        lines.push(`\nPool: ${poolModel}`);
+        lines.push(`  Strategy: ${members[0].pool.strategy}`);
+        lines.push("  Backends:");
+        for (const b of members) {
+          const status = b.health === "healthy" ? "✓" : b.health === "cooldown" ? "⏳" : "✗";
+          lines.push(
+            `    ${status} ${b.member.id.padEnd(16)} ` +
+            `lat=${b.ewmaLatencyMs.toFixed(0).padStart(4)}ms ` +
+            `inflight=${b.inFlight} ` +
+            `reqs=${b.totalRequests} ` +
+            `errs=${b.totalErrors}`
+          );
+        }
+      }
+
+      if (ctx.hasUI) {
+        ctx.ui.notify(lines.join("\n"), "info");
+      } else {
+        // Non-interactive mode (print/RPC) — log to stdout
+        console.log(lines.join("\n"));
+      }
+    },
+  });
 }
