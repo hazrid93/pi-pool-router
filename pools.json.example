@@ -10,64 +10,33 @@
       },
       "members": [
         {
-          "id": "makora-1",
-          "baseUrl": "http://127.0.0.1:4000/v1",
-          "apiKey": "sk-litellm-xxx",
-          "api": "openai-completions",
-          "model": "glm-5.2",
-          "contextWindow": 131072,
-          "maxTokens": 16384,
-          "reasoning": true
-        },
-        {
-          "id": "makora-2",
-          "baseUrl": "http://127.0.0.1:4000/v1",
-          "apiKey": "sk-litellm-xxx",
-          "api": "openai-completions",
-          "model": "glm-5.2",
-          "contextWindow": 131072,
-          "maxTokens": 16384,
-          "reasoning": true
-        },
-        {
-          "id": "umans",
-          "baseUrl": "http://127.0.0.1:4000/v1",
-          "apiKey": "sk-litellm-xxx",
-          "api": "openai-completions",
-          "model": "glm-5.2",
-          "contextWindow": 131072,
-          "maxTokens": 16384,
-          "reasoning": true
-        }
-      ]
-    },
-    {
-      "public_model": "pooled/kimi-k2.7",
-      "strategy": "cache-affinity",
-      "strategy_args": {
-        "latency_buffer": 0.1,
-        "hash_prefix_chars": 4096,
-        "max_in_flight_per_backend": 3
-      },
-      "members": [
-        {
-          "id": "sewer56",
-          "baseUrl": "http://127.0.0.1:4000/v1",
-          "apiKey": "sk-litellm-xxx",
-          "api": "openai-completions",
-          "model": "kimi-k2.7-code",
-          "contextWindow": 262144,
-          "maxTokens": 65536,
-          "reasoning": true
-        },
-        {
           "id": "neuralwatt",
-          "baseUrl": "http://127.0.0.1:4000/v1",
-          "apiKey": "sk-litellm-xxx",
+          "baseUrl": "https://api.neuralwatt.com/v1",
+          "apiKey": "sk-xxx",
           "api": "openai-completions",
-          "model": "kimi-k2.7-code",
-          "contextWindow": 262144,
-          "maxTokens": 65536,
+          "model": "glm-5.2-short",
+          "contextWindow": 131072,
+          "maxTokens": 16384,
+          "reasoning": true
+        },
+        {
+          "id": "getlilac",
+          "baseUrl": "https://api.getlilac.com/v1",
+          "apiKey": "lilac_sk-xxx",
+          "api": "openai-completions",
+          "model": "zai-org/glm-5.2",
+          "contextWindow": 131072,
+          "maxTokens": 16384,
+          "reasoning": true
+        },
+        {
+          "id": "synthetic",
+          "baseUrl": "https://api.synthetic.new/openai/v1",
+          "apiKey": "syn_xxx",
+          "api": "openai-completions",
+          "model": "hf:zai-org/GLM-5.2",
+          "contextWindow": 131072,
+          "maxTokens": 16384,
           "reasoning": true
         }
       ]

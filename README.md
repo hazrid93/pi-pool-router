@@ -114,21 +114,31 @@ Place at `~/.omp/agent/pools.json` (omp) or `~/.pi/pools.json` (pi):
       },
       "members": [
         {
-          "id": "makora-1",
-          "baseUrl": "http://127.0.0.1:4000/v1",
-          "apiKey": "sk-litellm-xxx",
+          "id": "neuralwatt",
+          "baseUrl": "https://api.neuralwatt.com/v1",
+          "apiKey": "sk-xxx",
           "api": "openai-completions",
-          "model": "glm-5.2",
+          "model": "glm-5.2-short",
           "contextWindow": 131072,
           "maxTokens": 16384,
           "reasoning": true
         },
         {
-          "id": "makora-2",
-          "baseUrl": "http://127.0.0.1:4000/v1",
-          "apiKey": "sk-litellm-xxx",
+          "id": "getlilac",
+          "baseUrl": "https://api.getlilac.com/v1",
+          "apiKey": "lilac_sk-xxx",
           "api": "openai-completions",
-          "model": "glm-5.2",
+          "model": "zai-org/glm-5.2",
+          "contextWindow": 131072,
+          "maxTokens": 16384,
+          "reasoning": true
+        },
+        {
+          "id": "synthetic",
+          "baseUrl": "https://api.synthetic.new/openai/v1",
+          "apiKey": "syn_xxx",
+          "api": "openai-completions",
+          "model": "hf:zai-org/GLM-5.2",
           "contextWindow": 131072,
           "maxTokens": 16384,
           "reasoning": true
@@ -176,8 +186,8 @@ Point roles at the pooled models:
 ```yaml
 modelRoles:
   default: pooled/glm-5.2:xhigh
-  vision: pooled/kimi-k2.7:off
-  advisor: pooled/kimi-k2.7:xhigh
+  vision: pooled/glm-5.2:off
+  advisor: pooled/glm-5.2:xhigh
   plan: pooled/glm-5.2:xhigh
 ```
 
@@ -192,14 +202,9 @@ Pool Router Status
 Pool: pooled/glm-5.2
   Strategy: cache-affinity
   Backends:
-    ✓ makora-1         lat=180ms inflight=0 reqs=42 errs=0
-    ✓ makora-2         lat=195ms inflight=1 reqs=38 errs=1
-
-Pool: pooled/kimi-k2.7
-  Strategy: cache-affinity
-  Backends:
-    ✓ sewer56          lat=210ms inflight=0 reqs=15 errs=0
-    ✓ neuralwatt       lat=225ms inflight=0 reqs=12 errs=0
+    ✓ neuralwatt       lat=180ms inflight=0 reqs=42 errs=0
+    ✓ getlilac         lat=195ms inflight=1 reqs=38 errs=1
+    ✓ synthetic        lat=210ms inflight=0 reqs=15 errs=0
 ```
 
 ## How it works
@@ -223,7 +228,7 @@ Request: "Summarize this code..." (model: pooled/glm-5.2)
     │
     ▼
 ┌─────────────────────────────────────────────────┐
-│ Backend: makora-1 (127.0.0.1:4000/v1)          │
+│ Backend: neuralwatt (api.neuralwatt.com/v1)    │
 │                                                 │
 │  streamSimple() normalizes to                   │
 │  AssistantMessageEvent → forwarded unchanged    │
