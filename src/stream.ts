@@ -480,7 +480,12 @@ export function createStreamHandler(
     // Build request body
     const messages = toOpenAIMessages(context.messages);
     if (context.systemPrompt) {
-      messages.unshift({ role: "system", content: context.systemPrompt });
+      const sysContent = typeof context.systemPrompt === "string"
+        ? context.systemPrompt
+        : Array.isArray(context.systemPrompt)
+          ? context.systemPrompt.join("")
+          : String(context.systemPrompt ?? "");
+      messages.unshift({ role: "system", content: sysContent });
     }
     const body: Record<string, unknown> = { messages, stream: true };
     if (options?.temperature !== undefined) body.temperature = options.temperature;

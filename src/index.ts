@@ -63,6 +63,7 @@ export default function poolRouter(pi: ExtensionAPI): void {
   const providerConfig: ProviderConfig = {
     api: "pool-dispatch",
     baseUrl: "http://pool-router.local",
+    apiKey: "pool-router-local",
     streamSimple: streamSimple as unknown as NonNullable<ProviderConfig["streamSimple"]>,
     models: allModels,
   };
