@@ -1,0 +1,17 @@
+{
+  "name": "pool-router",
+  "version": "1.0.0",
+  "description": "Pi/omp in-process extension: cache-affinity hash-ring routing with latency pre-filter for LLM provider pools",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}

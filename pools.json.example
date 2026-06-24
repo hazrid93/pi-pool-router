@@ -1,0 +1,81 @@
+{
+  "pools": [
+    {
+      "public_model": "pooled/glm-5.2",
+      "strategy": "cache-affinity",
+      "strategy_args": {
+        "latency_buffer": 0.1,
+        "hash_prefix_chars": 4096,
+        "max_in_flight_per_backend": 3
+      },
+      "members": [
+        {
+          "id": "makora-1",
+          "baseUrl": "http://127.0.0.1:4000/v1",
+          "apiKey": "sk-litellm-xxx",
+          "api": "openai-completions",
+          "model": "glm-5.2",
+          "weight": 1,
+          "contextWindow": 131072,
+          "maxTokens": 16384,
+          "reasoning": true
+        },
+        {
+          "id": "makora-2",
+          "baseUrl": "http://127.0.0.1:4000/v1",
+          "apiKey": "sk-litellm-xxx",
+          "api": "openai-completions",
+          "model": "glm-5.2",
+          "weight": 1,
+          "contextWindow": 131072,
+          "maxTokens": 16384,
+          "reasoning": true
+        },
+        {
+          "id": "umans",
+          "baseUrl": "http://127.0.0.1:4000/v1",
+          "apiKey": "sk-litellm-xxx",
+          "api": "openai-completions",
+          "model": "glm-5.2",
+          "weight": 1,
+          "contextWindow": 131072,
+          "maxTokens": 16384,
+          "reasoning": true
+        }
+      ]
+    },
+    {
+      "public_model": "pooled/kimi-k2.7",
+      "strategy": "cache-affinity",
+      "strategy_args": {
+        "latency_buffer": 0.1,
+        "hash_prefix_chars": 4096,
+        "max_in_flight_per_backend": 3
+      },
+      "members": [
+        {
+          "id": "sewer56",
+          "baseUrl": "http://127.0.0.1:4000/v1",
+          "apiKey": "sk-litellm-xxx",
+          "api": "openai-completions",
+          "model": "kimi-k2.7-code",
+          "weight": 1,
+          "contextWindow": 262144,
+          "maxTokens": 65536,
+          "reasoning": true
+        },
+        {
+          "id": "neuralwatt",
+          "baseUrl": "http://127.0.0.1:4000/v1",
+          "apiKey": "sk-litellm-xxx",
+          "api": "openai-completions",
+          "model": "kimi-k2.7-code",
+          "weight": 1,
+          "contextWindow": 262144,
+          "maxTokens": 65536,
+          "reasoning": true
+        }
+      ]
+    }
+  ]
+}
