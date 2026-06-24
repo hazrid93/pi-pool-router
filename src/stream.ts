@@ -442,7 +442,6 @@ export function createStreamHandler(
         if (!selection) break;
 
         const { backendKey, backend } = selection;
-        if (tried.has(backendKey)) continue;
         tried.add(backendKey);
 
         const member = backend.member;
