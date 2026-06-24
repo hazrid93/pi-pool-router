@@ -24,7 +24,7 @@ export interface BackendMember {
   maxTokens?: number;
   reasoning?: boolean;
   input?: ("text" | "image")[];  // input modalities (default: ["text"])
-  healthPath?: string;  // health check path (default: none — health checks off for this backend)
+  healthCheck?: boolean;  // enable background health probe (default: true)
 }
 
 export interface Pool {

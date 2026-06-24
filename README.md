@@ -270,6 +270,7 @@ Request: "Summarize this code..." (model: pooled/glm-5.2)
 | `reasoning` | boolean | false | Whether model supports reasoning |
 | `input` | array | `["text"]` | Input modalities — `["text"]`, `["text", "image"]`, or `["image"]` |
 | `headers` | object | | Extra headers to send |
+| `healthCheck` | boolean | `true` | Background 1-token completion probe every 60s |
 
 ## License
 
