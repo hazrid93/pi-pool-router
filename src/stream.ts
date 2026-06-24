@@ -32,7 +32,6 @@ import type {
   ThinkingContent,
   ToolCall,
 } from "@mariozechner/pi-ai";
-import { createAssistantMessageEventStream } from "@mariozechner/pi-ai";
 import type { PoolConfig, Pool } from "./config.js";
 import type { StateStore } from "./state.js";
 import { Router } from "./router.js";
@@ -372,6 +371,71 @@ async function dispatchToBackend(
   }
 }
 
+// ─── Local AssistantMessageEventStream implementation ────────────────────────
+// We implement this locally instead of importing createAssistantMessageEventStream
+// from @mariozechner/pi-ai to avoid a static value import that omp's install-time
+// extension validation can't resolve (the package isn't in the plugin's node_modules
+// at validation time — omp rewrites @mariozechner/* → @oh-my-pi/* at runtime only).
+
+function createStream(): AssistantMessageEventStream {
+  const queue: AssistantMessageEvent[] = [];
+  let waiting: ((event: IteratorResult<AssistantMessageEvent>) => void) | null = null;
+  let isDone = false;
+  let resolveFinal: ((msg: AssistantMessage) => void) | null = null;
+  let finalResult: AssistantMessage | null = null;
+
+  const isComplete = (event: AssistantMessageEvent): boolean =>
+    event.type === "done" || event.type === "error";
+
+  const extractResult = (event: AssistantMessageEvent): AssistantMessage =>
+    event.type === "done" ? event.message : event.type === "error" ? event.error : ({} as AssistantMessage);
+
+  const stream = {
+    push(event: AssistantMessageEvent): void {
+      if (isDone) return;
+      if (waiting) {
+        waiting({ value: event, done: false });
+        waiting = null;
+      } else {
+        queue.push(event);
+      }
+      if (isComplete(event)) {
+        finalResult = extractResult(event);
+        if (resolveFinal) resolveFinal(finalResult);
+      }
+    },
+    end(result?: AssistantMessage): void {
+      if (isDone) return;
+      isDone = true;
+      if (result && resolveFinal) resolveFinal(result);
+      else if (finalResult && resolveFinal) resolveFinal(finalResult);
+      if (waiting) {
+        waiting({ value: undefined as unknown as AssistantMessageEvent, done: true });
+        waiting = null;
+      }
+    },
+    result(): Promise<AssistantMessage> {
+      if (finalResult) return Promise.resolve(finalResult);
+      return new Promise<AssistantMessage>((resolve) => { resolveFinal = resolve; });
+    },
+    [Symbol.asyncIterator](): AsyncIterator<AssistantMessageEvent> {
+      return {
+        next(): Promise<IteratorResult<AssistantMessageEvent>> {
+          if (queue.length > 0) {
+            return Promise.resolve({ value: queue.shift()!, done: false });
+          }
+          if (isDone) {
+            return Promise.resolve({ value: undefined as unknown as AssistantMessageEvent, done: true });
+          }
+          return new Promise<IteratorResult<AssistantMessageEvent>>((resolve) => { waiting = resolve; });
+        },
+      };
+    },
+  };
+
+  return stream as unknown as AssistantMessageEventStream;
+}
+
 // ─── Stream handler factory ──────────────────────────────────────────────────
 
 export function createStreamHandler(
@@ -389,7 +453,7 @@ export function createStreamHandler(
     context: Context,
     options?: SimpleStreamOptions,
   ): AssistantMessageEventStream {
-    const stream = createAssistantMessageEventStream();
+    const stream = createStream();
 
     // Find the pool by model id
     const modelId = model.id;
