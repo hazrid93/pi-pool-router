@@ -1,5 +1,8 @@
 # Pool Router
 
+
+📎 **[Architecture & Sequence Diagrams](docs/architecture.md)**
+
 A pi/omp in-process extension that replaces LiteLLM's pool routing natively. Define pools in a self-contained `pools.json` — the extension registers a custom provider that routes requests across backends using a **cache-affinity hash ring** with a latency pre-filter.
 
 ## Why cache-affinity?
