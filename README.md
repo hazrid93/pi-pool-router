@@ -151,8 +151,6 @@ Place at `~/.omp/agent/pools.json` (omp) or `~/.pi/pools.json` (pi):
 
 All entries with the same `public_model` are merged into one pool. Each member has its API key inline — no reference to `models.yml`.
 
-### 2. Install the extension
-
 **From GitHub (omp):**
 ```bash
 omp plugin install github:hazrid93/pi-pool-router
@@ -160,29 +158,38 @@ omp plugin install github:hazrid93/pi-pool-router
 
 **From GitHub (pi):**
 ```bash
-pi plugin install github:hazrid93/pi-pool-router
+pi install https://github.com/hazrid93/pi-pool-router
 ```
 
-**Local dev:**
+**Local dev (omp):**
 ```bash
 omp plugin link ./path/to/pi-pool-router
 ```
 
-> Marketplace installs do NOT load extension modules — use `github:` spec or `plugin link` for local dev.
+> Marketplace installs do NOT load extension modules — use `github:` spec (omp), `https://` URL (pi), or `plugin link` (omp local dev).
 
 ### 3. Update `models.yml`
 
-Remove the old provider and let the extension register `pooled/*` providers:
+For omp, remove the old provider and let the extension register `pooled/*` providers:
 
 ```yaml
+# ~/.omp/agent/models.yml
 # Remove the old "litellm" provider block entirely.
 # The extension registers "pooled" as a provider with the pool's models.
 ```
 
+For pi, keep `models.yml` empty — the extension registers the `pooled` provider automatically:
+
+```yaml
+# ~/.pi/models.yml
+providers: {}
+```
+
 ### 4. Update `config.yml` roles
 
-Point roles at the pooled models:
+Point roles at the pooled models. Same format for both omp and pi:
 
+**omp** (`~/.omp/agent/config.yml`):
 ```yaml
 modelRoles:
   default: pooled/glm-5.2:xhigh
@@ -191,7 +198,31 @@ modelRoles:
   plan: pooled/glm-5.2:xhigh
 ```
 
-### 5. Verify
+**pi** (`~/.pi/config.yml`):
+```yaml
+symbolPreset: unicode
+modelRoles:
+  default: pooled/glm-5.2:xhigh
+  vision: pooled/glm-5.2:off
+  advisor: pooled/glm-5.2:xhigh
+  plan: pooled/glm-5.2:xhigh
+advisor:
+  enabled: true
+task:
+  maxConcurrency: 4
+```
+
+> `advisor.enabled` and `task.maxConcurrency` are pi-specific options. The `modelRoles` block is identical for both.
+
+### 5. PATH setup for pi
+
+pi is a Node.js application and requires `node` on PATH. If using nvm, ensure the node bin directory is in PATH:
+```bash
+export PATH="$HOME/.nvm/versions/node/v22.23.0/bin:$HOME/.bun/bin:$HOME/.local/bin:$PATH"
+```
+Add this to your shell profile (`~/.bashrc` or `~/.zshrc`) for persistence.
+
+### 6. Verify
 
 Run `/pool-status` in omp/pi to see backend health, latency, and request counts:
 
@@ -216,7 +247,7 @@ Request: "Summarize this code..." (model: pooled/glm-5.2)
 ┌─────────────────────────────────────────────────┐
 │ Pool Router Extension (registerProvider)        │
 │                                                 │
-│  1. Extract prompt prefix (system + first user) │
+│  1. Extract prefix (sessionId + system + user1) │
 │  2. Filter backends by latency (10% band)       │
 │  3. Hash prefix → position on ring             │
 │  4. Binary search ring → backend                │
@@ -238,7 +269,7 @@ Request: "Summarize this code..." (model: pooled/glm-5.2)
 
 ## Benchmarks
 
-Two load tests were run against 3 OpenAI-compatible backends (neuralwatt, getlilac, synthetic) serving `glm-5.2`. Both tests implement the plugin's exact hash ring algorithm (150 virtual nodes, 128-bit bigint from first 16 bytes of SHA256, binary search walk) to measure the real routing logic — not omp cold-start overhead.
+Three load tests were run against 3 OpenAI-compatible backends (neuralwatt, getlilac, synthetic) serving `glm-5.2`. All tests implement the plugin's exact hash ring algorithm (150 virtual nodes, 128-bit bigint from first 16 bytes of SHA256, binary search walk) to measure the real routing logic — not omp cold-start overhead.
 
 > **Note:** These tests measure backend cache-warmth and latency filtering under the two routing policies, implemented in a standalone Python script that matches the plugin's hash ring exactly. They do not exercise the omp `streamSimple` handler directly, but the routing decisions are identical.
 
@@ -304,6 +335,88 @@ round-robin        unique-prompts       20  20 |     1.54     1.25     3.04 |   
 - The overall cache hit *count* looks similar (66.7% vs 63.3%) because some backends have residual cache from prior traffic — but the **TTFT proves cache-affinity uses the cache effectively** while round-robin does not.
 
 **Bottom line:** cache-affinity trades slightly less even distribution for dramatically better cache utilization. A 63.7% TTFT speedup on repeated prompts is worth the 9% distribution unevenness.
+
+## Session-ID hashing
+
+The hash prefix includes the `sessionId` from `SimpleStreamOptions`, not just the prompt content. This solves a critical problem in multi-turn coding sessions:
+
+```
+Prefix = [session:<id>] + systemPrompt + first_user_message
+            ↑
+      unique per session
+```
+
+### Why not hash the full conversation?
+
+Each turn in a coding session adds messages, changing the conversation. If the hash included the full history, it would change every turn → different backend every turn → **zero cache hits ever**.
+
+### Why not hash just prompt content?
+
+Two different coding sessions that start with a similar first message (e.g. "Create a React component") would hash to the same backend, competing for each other's cache and causing eviction.
+
+### How session-ID hashing works
+
+```
+Session A, Turn 5:  hash([session:abc] + system + user1) → backend A
+                    → A has prefix cached from turns 1-4 → fast
+
+Session B, Turn 1:  hash([session:xyz] + system + user1) → backend B
+                    → different backend, no cache collision
+
+Session A, Turn 6:  hash([session:abc] + system + user1) → backend A (SAME)
+                    → A still has accumulated cache → fast
+```
+
+| Property | Behavior |
+|---|---|
+| Same session → same backend | ✅ Every turn routes to the same backend, cache accumulates |
+| Different sessions → different backends | ✅ Unique sessionId produces different hash, no cache collision |
+| Full conversation sent to backend | ✅ All messages sent in request body; only the *routing hash* is stable |
+| `hash_prefix_chars` applies to prefix | ✅ Only first 4096 chars of the prefix string are hashed (not a moving target) |
+
+### Test 3: Session-ID cache accumulation (60 requests)
+
+10 sessions × 3 turns per session = 30 requests per strategy. Each session has a unique sessionId and growing conversation history (system prompt + increasing messages). Different system prompts and user messages per strategy to eliminate cache contamination.
+
+`max_tokens=50`, system prompts ~100 tokens, TTFT = first token of any kind.
+
+**Cache hit rate and accumulation:**
+
+| Strategy | Overall | Turn 1 | Turn 2 | Turn 3 | Session stickiness |
+|---|---|---|---|---|---|
+| cache-affinity | 46.7% (14/30) | 30% (3/10) | 40% (4/10) | **70% (7/10)** | **100%** (10/10) |
+| round-robin | 56.7% (17/30) | 70% (7/10) | 10% (1/10) | 90% (9/10) | **0%** (0/10) |
+
+**Per-turn TTFT (cache accumulation effect):**
+
+| Strategy | Turn 1 | Turn 2 | Turn 3 | Trend |
+|---|---|---|---|---|
+| cache-affinity | 3.81s | 1.21s | **1.16s** | ↓ 69.5% faster (cache accumulates) |
+| round-robin | 1.59s | 2.03s | 3.03s | ↑ 90.7% slower (cache doesn't accumulate) |
+
+**Overall latency:**
+
+| Strategy | Mean | Median | P90 |
+|---|---|---|---|
+| cache-affinity | 2.06s | **1.12s** | **1.80s** |
+| round-robin | 2.22s | 1.31s | 4.38s |
+
+**Load distribution:**
+
+| Backend | cache-affinity | round-robin |
+|---|---|---|
+| neuralwatt | 6 (20.0%) | 11 (36.7%) |
+| getlilac | 15 (50.0%) | 10 (33.3%) |
+| synthetic | 12 (40.0%) | 10 (33.3%) |
+| **Evenness (CV)** | 41.7% | **5.6%** |
+
+**Key findings:**
+
+- **Session stickiness is perfect with cache-affinity (100%)** — every session stayed on the same backend for all 3 turns. Round-robin had 0% stickiness by design (each turn rotates to a different backend).
+- **Cache accumulates with cache-affinity**: Turn 1 → 30% hit rate, Turn 2 → 40%, Turn 3 → 70%. The average cached tokens grew from 19 → 26 → 45 across turns.
+- **Round-robin's Turn 1 had 70% cache hits** — an artifact of running after cache-affinity warmed shared backends. Despite this head start, cache round-robin's per-turn TTFT got *worse* not better: 1.59s → 2.03s → 3.03s.
+- **cache-affinity P90 is 2.4× better** (1.80s vs 4.38s) — the latency pre-filter keeps degraded backends (like synthetic's cold-start spikes) out of the ring.
+- **Round-robin's Turn 3 spike** (3.03s, 90.7% slower than Turn 1) happens because growing conversation + no cache affinity means each turn processes more tokens on a cold backend. Cache-affinity's Turn 3 is fastest (1.16s) because the backend has the full prefix cached.
 
 ## Configuration reference
 
