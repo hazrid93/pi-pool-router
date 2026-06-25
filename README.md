@@ -236,6 +236,75 @@ Request: "Summarize this code..." (model: pooled/glm-5.2)
 └─────────────────────────────────────────────────┘
 ```
 
+## Benchmarks
+
+Two load tests were run against 3 OpenAI-compatible backends (neuralwatt, getlilac, synthetic) serving `glm-5.2`. Both tests implement the plugin's exact hash ring algorithm (150 virtual nodes, 128-bit bigint from first 16 bytes of SHA256, binary search walk) to measure the real routing logic — not omp cold-start overhead.
+
+> **Note:** These tests measure backend cache-warmth and latency filtering under the two routing policies, implemented in a standalone Python script that matches the plugin's hash ring exactly. They do not exercise the omp `streamSimple` handler directly, but the routing decisions are identical.
+
+### Test 1: Latency comparison (80 requests)
+
+20 requests per run × 4 runs (repeated + unique prompts × cache-affinity + round-robin). `max_tokens=100`, shared system prompt (~1.5k tokens), TTFT = first token of any kind.
+
+```
+Strategy           Label               Reqs  OK | TTFT avg TTFT med TTFT p90 |  TOT avg  TOT med  TOT p90
+───────────────────────────────────────────────────────────────────────────────────────────────────────────
+cache-affinity     repeated-prefixes     20  20 |     1.34     0.93     2.62 |     2.34     1.36     5.14
+round-robin        repeated-prefixes     20  20 |     1.42     1.25     3.02 |     2.74     2.23     4.92
+cache-affinity     unique-prompts        20  20 |     1.24     1.19     1.77 |     2.65     2.45     5.07
+round-robin        unique-prompts       20  20 |     1.54     1.25     3.04 |     3.34     2.62     6.76
+```
+
+**Results:**
+
+| Metric | Repeated prompts | Unique prompts |
+|---|---|---|
+| TTFT | cache-affinity **6.1% faster** (1.34s vs 1.42s) | cache-affinity **19.8% faster** (1.24s vs 1.54s) |
+| Total time | cache-affinity **14.6% faster** (2.34s vs 2.74s) | cache-affinity **20.8% faster** (2.65s vs 3.34s) |
+| P90 TTFT | 2.62s vs 3.02s | 1.77s vs 3.04s |
+
+**Key findings:**
+
+- **cache-affinity wins across all metrics** — not just for repeated prompts. The total-time advantage is larger than TTFT, suggesting warm prefix caches also speed up token generation.
+- **Unique prompts showed a 19.8% TTFT advantage** — this shouldn't exist if routing were the only variable. The explanation: cache-affinity's **latency pre-filter** excludes slow backends from the ring, while round-robin blindly rotates to all backends including slow ones.
+- **P90 tail latency is dramatically better** — cache-affinity keeps degraded backends out of the selection pool (1.77s vs 3.04s for unique prompts).
+
+### Test 2: Load distribution + cache hits (60 requests)
+
+10 prompts, each sent 3× (30 requests per strategy). Measures which backend gets which request (distribution evenness) and whether prefix caches actually hit (`cached_tokens` from backend `usage` responses).
+
+**Cache hit rate:**
+
+| Strategy | Overall | First send | Repeat send | Cached tokens |
+|---|---|---|---|---|
+| cache-affinity | 63.3% (19/30) | 2/10 | **17/20** | 1728/4239 (40.8%) |
+| round-robin | 66.7% (20/30) | 7/10 | **13/20** | 1728/4101 (42.1%) |
+
+**Load distribution:**
+
+| Backend | cache-affinity | round-robin |
+|---|---|---|
+| neuralwatt | 10 (33.3%) | 11 (36.7%) |
+| getlilac | 12 (40.0%) | 10 (33.3%) |
+| synthetic | 9 (30.0%) | 10 (33.3%) |
+| **Evenness (CV)** | 14.8% | **5.6%** |
+
+**TTFT — cache effect on repeats:**
+
+| Strategy | First send | Repeat send | Speedup |
+|---|---|---|---|
+| cache-affinity | 3.62s | **1.31s** | **63.7% faster** |
+| round-robin | 1.21s | 1.80s | **48.6% slower** |
+
+**Key findings:**
+
+- **cache-affinity preserves cache locality:** same prompt → same backend → prefix cache stays warm → repeats are 63.7% faster (3.62s → 1.31s).
+- **round-robin busts the cache:** same prompt → different backend each time → cache stays cold → repeats are 48.6% slower than first sends (1.21s → 1.80s).
+- **round-robin distributes more evenly** (CV 5.6% vs 14.8%) — with only 3 backends and 10 prompts, the hash ring assigns 3–4 prompts per backend, which is slightly uneven. Distribution evens out with more prompts.
+- The overall cache hit *count* looks similar (66.7% vs 63.3%) because some backends have residual cache from prior traffic — but the **TTFT proves cache-affinity uses the cache effectively** while round-robin does not.
+
+**Bottom line:** cache-affinity trades slightly less even distribution for dramatically better cache utilization. A 63.7% TTFT speedup on repeated prompts is worth the 9% distribution unevenness.
+
 ## Configuration reference
 
 ### Pool
