@@ -3,6 +3,8 @@
 
 📎 **[Architecture & Sequence Diagrams](docs/architecture.md)**
 
+📖 **[DeepWiki](https://app.devin.ai/org/isaiya-9bf81eafd4d3/wiki/hazrid93/pi-pool-router?branch=main)**
+
 A pi/omp in-process extension that replaces LiteLLM's pool routing natively. Define pools in a self-contained `pools.json` — the extension registers a custom provider that routes requests across backends using a **cache-affinity hash ring** with a latency pre-filter.
 
 ## Why cache-affinity?
