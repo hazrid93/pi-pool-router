@@ -11,7 +11,7 @@
  */
 
 import type { ExtensionAPI, ProviderConfig } from "@mariozechner/pi-coding-agent";
-import { loadConfig, type PoolConfig, type Pool } from "./config.js";
+import { loadConfig, detectHost, type PoolConfig, type Pool } from "./config.js";
 import { StateStore } from "./state.js";
 import { Router } from "./router.js";
 import { HealthChecker } from "./health.js";
@@ -26,6 +26,8 @@ export default function poolRouter(pi: ExtensionAPI): void {
     console.warn(`[pool-router] Failed to load pools.json — ${msg}`);
     return;
   }
+
+  console.debug(`[pool-router] running on host: ${detectHost()}`);
 
   // Initialize state and router
   const state = new StateStore();

@@ -1,13 +1,45 @@
 /**
  * config.ts — pools.json loader with runtime validation
  *
- * Loads pool configuration from ~/.omp/agent/pools.json (omp) or ~/.pi/pools.json (pi).
- * The config is fully self-contained — no reference to models.yml.
+ * Loads pool configuration from ~/.pi/pools.json (pi) or ~/.omp/agent/pools.json (omp).
+ * Host is auto-detected (see detectHost) — the running host's path is tried first,
+ * so an empty or stray file under the *other* host's dir never shadows a valid config.
+ * Empty candidates are skipped with a warning. The config is fully self-contained.
  */
 
-import { readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync, existsSync, statSync } from "node:fs";
+import { join, dirname } from "node:path";
 import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
+
+const __moduleDir =
+  typeof __dirname !== "undefined"
+    ? __dirname
+    : dirname(fileURLToPath(import.meta.url));
+
+// ─── Host detection ─────────────────────────────────────────────────────────
+// The extension runs under both pi (pi-mono) and omp. omp installs its deps
+// under "@oh-my-pi/*" via an install-time import-rewrite hook; pi keeps
+// "@mariozechner/*". We use that + the PI_CODING_AGENT env var to detect host,
+// so each host loads config from its own dir (~/.pi vs ~/.omp/agent) and an
+// empty/stray file under the *other* host's dir can never shadow a valid one.
+
+export type HostApp = "pi" | "omp";
+
+export function detectHost(): HostApp {
+  // 1. Strongest signal: pi-mono sets PI_CODING_AGENT=true at launch.
+  if (process.env.PI_CODING_AGENT) return "pi";
+  // 2. Dependency layout: omp rewrites to @oh-my-pi, pi keeps @mariozechner.
+  const nm = join(__moduleDir, "..", "node_modules");
+  if (existsSync(join(nm, "@oh-my-pi"))) return "omp";
+  if (existsSync(join(nm, "@mariozechner"))) return "pi";
+  // 3. Last resort: whichever config dir already has a pools.json.
+  const home = homedir();
+  if (existsSync(join(home, ".omp", "agent", "pools.json"))) return "omp";
+  if (existsSync(join(home, ".pi", "pools.json"))) return "pi";
+  // Default — repo origin is pi.
+  return "pi";
+}
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -112,15 +144,26 @@ export function validateConfig(config: unknown): PoolConfig {
 
 // ─── Loader ─────────────────────────────────────────────────────────────────
 
-export function findPoolsJson(): string | null {
+export function findPoolsJson(host?: HostApp): string | null {
+  const h = host ?? detectHost();
   const home = homedir();
-  const candidates = [
-    join(home, ".omp", "agent", "pools.json"),
-    join(home, ".pi", "pools.json"),
-    join(process.cwd(), "pools.json"),
-  ];
+  const piPath = join(home, ".pi", "pools.json");
+  const ompPath = join(home, ".omp", "agent", "pools.json");
+  const cwdPath = join(process.cwd(), "pools.json");
+  // Running host first, then the other host, then cwd (manual override).
+  const candidates = h === "omp" ? [ompPath, piPath, cwdPath] : [piPath, ompPath, cwdPath];
   for (const p of candidates) {
-    if (existsSync(p)) return p;
+    if (!existsSync(p)) continue;
+    // Skip empty/zero-byte files so a stray file can never shadow a valid config.
+    try {
+      if (statSync(p).size === 0) {
+        console.warn(`[pool-router] ignoring empty pools.json at ${p}`);
+        continue;
+      }
+    } catch {
+      continue;
+    }
+    return p;
   }
   return null;
 }
@@ -129,10 +172,18 @@ export function loadConfig(path?: string): PoolConfig {
   const configPath = path ?? findPoolsJson();
   if (!configPath) {
     throw new Error(
-      "No pools.json found. Create one at ~/.omp/agent/pools.json (omp) or ~/.pi/pools.json (pi)."
+      "No pools.json found. Create one at ~/.pi/pools.json (pi) or ~/.omp/agent/pools.json (omp)."
     );
   }
   const raw = readFileSync(configPath, "utf-8");
-  const parsed = JSON.parse(raw);
+  if (raw.trim() === "") {
+    throw new Error(`pools.json at ${configPath} is empty. Remove it or fill in a valid config.`);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    throw new Error(`pools.json at ${configPath} is not valid JSON: ${(e as Error).message}`);
+  }
   return validateConfig(parsed);
 }

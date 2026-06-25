@@ -99,7 +99,14 @@ This excludes slow/degraded backends from the ring while preserving cache locali
 
 ### 1. Create `pools.json`
 
-Place at `~/.omp/agent/pools.json` (omp) or `~/.pi/pools.json` (pi):
+Place at `~/.pi/pools.json` (pi) or `~/.omp/agent/pools.json` (omp):
+
+> **Host-aware loading.** The extension auto-detects whether it's running under pi
+> or omp (via the `PI_CODING_AGENT` env var and the installed dependency layout)
+> and loads config from the *current host's* path first. An empty or stray file
+> under the *other* host's dir is skipped with a warning and never shadows a
+> valid config. You can also place a `pools.json` in your project's cwd as a
+> manual override (checked last).
 
 ```json
 {
