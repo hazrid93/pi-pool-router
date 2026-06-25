@@ -38,8 +38,9 @@ import { Router } from "./router.js";
 
 // ─── Prompt prefix extraction ────────────────────────────────────────────────
 
-function extractPromptPrefix(messages: Message[], systemPrompt?: string): string {
+function extractPromptPrefix(messages: Message[], systemPrompt?: string, sessionId?: string): string {
   const parts: string[] = [];
+  if (sessionId) parts.push(`[session:${sessionId}]`);
   if (systemPrompt) parts.push(systemPrompt);
   for (const msg of messages) {
     if (msg.role === "user") {
@@ -50,7 +51,7 @@ function extractPromptPrefix(messages: Message[], systemPrompt?: string): string
             .join("");
       if (content) parts.push(content);
     }
-    if (parts.length >= 2) break;
+    if (parts.length >= 3) break;
   }
   return parts.join("\n\n");
 }
@@ -475,7 +476,7 @@ export function createStreamHandler(
       return stream;
     }
 
-    const promptPrefix = extractPromptPrefix(context.messages, context.systemPrompt);
+    const promptPrefix = extractPromptPrefix(context.messages, context.systemPrompt, options?.sessionId);
 
     // Build request body
     const messages = toOpenAIMessages(context.messages);
