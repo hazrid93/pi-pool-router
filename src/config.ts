@@ -18,22 +18,37 @@ const __moduleDir =
     : dirname(fileURLToPath(import.meta.url));
 
 // ─── Host detection ─────────────────────────────────────────────────────────
-// The extension runs under both pi (pi-mono) and omp. omp installs its deps
-// under "@oh-my-pi/*" via an install-time import-rewrite hook; pi keeps
-// "@mariozechner/*". We use that + the PI_CODING_AGENT env var to detect host,
-// so each host loads config from its own dir (~/.pi vs ~/.omp/agent) and an
-// empty/stray file under the *other* host's dir can never shadow a valid one.
+// The extension is ONE shared codebase that runs under BOTH pi (pi-mono) and
+// omp. omp is a fork of pi: it re-exports the *same* ExtensionAPI (which has no
+// host/config-dir field), rewrites imports "@mariozechner/*" → "@oh-my-pi/*",
+// and — because it forked pi's CLI — ALSO inherits the PI_CODING_AGENT=true
+// marker. So PI_CODING_AGENT alone is NOT discriminative. We must check omp's
+// OWN markers first, then fall back to pi's. This keeps each host loading config
+// from its own dir (~/.pi vs ~/.omp/agent) and prevents a stray/empty file under
+// the other host's dir from shadowing a valid config.
 
 export type HostApp = "pi" | "omp";
 
 export function detectHost(): HostApp {
-  // 1. Strongest signal: pi-mono sets PI_CODING_AGENT=true at launch.
-  if (process.env.PI_CODING_AGENT) return "pi";
-  // 2. Dependency layout: omp rewrites to @oh-my-pi, pi keeps @mariozechner.
   const nm = join(__moduleDir, "..", "node_modules");
-  if (existsSync(join(nm, "@oh-my-pi"))) return "omp";
-  if (existsSync(join(nm, "@mariozechner"))) return "pi";
-  // 3. Last resort: whichever config dir already has a pools.json.
+  const hasOhMyPi = existsSync(join(nm, "@oh-my-pi"));
+  const hasMariozechner = existsSync(join(nm, "@mariozechner"));
+
+  // 1. omp's structural differentiator: its install-time import-rewrite hook
+  //    makes @oh-my-pi/* resolvable. If that namespace is present, it's omp.
+  if (hasOhMyPi) return "omp";
+  // 2. omp's OWN env markers (set by omp itself; pi never sets these). omp is a
+  //    pi fork and inherits PI_CODING_AGENT, so we must check these BEFORE pi's.
+  //    Truthy check: an empty-string var (e.g. `OMP_PROFILE=`) is not a real signal.
+  if (process.env.OMP_PROFILE || process.env.OMP_AUTORESEARCH_DB_DIR || process.env.OMP_AUTH_BROKER_URL) {
+    return "omp";
+  }
+  // 3. pi's own marker: pi-mono sets PI_CODING_AGENT=true at launch. Safe now —
+  //    omp was already caught by the checks above.
+  if (process.env.PI_CODING_AGENT) return "pi";
+  // 4. Dependency layout fallback: pi keeps @mariozechner/* (omp rewrote to @oh-my-pi).
+  if (hasMariozechner) return "pi";
+  // 5. Last resort: whichever config dir already has a pools.json.
   const home = homedir();
   if (existsSync(join(home, ".omp", "agent", "pools.json"))) return "omp";
   if (existsSync(join(home, ".pi", "pools.json"))) return "pi";
