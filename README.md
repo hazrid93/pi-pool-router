@@ -151,6 +151,8 @@ Place at `~/.omp/agent/pools.json` (omp) or `~/.pi/pools.json` (pi):
 
 All entries with the same `public_model` are merged into one pool. Each member has its API key inline — no reference to `models.yml`.
 
+### 2. Install the extension
+
 **From GitHub (omp):**
 ```bash
 omp plugin install github:hazrid93/pi-pool-router
@@ -168,28 +170,10 @@ omp plugin link ./path/to/pi-pool-router
 
 > Marketplace installs do NOT load extension modules — use `github:` spec (omp), `https://` URL (pi), or `plugin link` (omp local dev).
 
-### 3. Update `models.yml`
-
-For omp, remove the old provider and let the extension register `pooled/*` providers:
-
-```yaml
-# ~/.omp/agent/models.yml
-# Remove the old "litellm" provider block entirely.
-# The extension registers "pooled" as a provider with the pool's models.
-```
-
-For pi, keep `models.yml` empty — the extension registers the `pooled` provider automatically:
-
-```yaml
-# ~/.pi/models.yml
-providers: {}
-```
-
-### 4. Update `config.yml` roles
-
-Point roles at the pooled models. Same format for both omp and pi:
+### 3. Configure the default model
 
 **omp** (`~/.omp/agent/config.yml`):
+
 ```yaml
 modelRoles:
   default: pooled/glm-5.2:xhigh
@@ -198,23 +182,25 @@ modelRoles:
   plan: pooled/glm-5.2:xhigh
 ```
 
-**pi** (`~/.pi/config.yml`):
-```yaml
-symbolPreset: unicode
-modelRoles:
-  default: pooled/glm-5.2:xhigh
-  vision: pooled/glm-5.2:off
-  advisor: pooled/glm-5.2:xhigh
-  plan: pooled/glm-5.2:xhigh
-advisor:
-  enabled: true
-task:
-  maxConcurrency: 4
+Also remove the old provider block from `~/.omp/agent/models.yml` — the extension registers `pooled` as a provider automatically.
+
+**pi** (`~/.pi/agent/settings.json`):
+
+The `pi install` command already adds the extension to `packages`. Set the default model by adding two keys:
+```json
+{
+  "packages": [
+    "https://github.com/hazrid93/pi-pool-router"
+  ],
+  "defaultProvider": "pooled",
+  "defaultModel": "glm-5.2",
+  "defaultThinkingLevel": "xhigh"
+}
 ```
 
-> `advisor.enabled` and `task.maxConcurrency` are pi-specific options. The `modelRoles` block is identical for both.
+Alternatively, pass `--model pooled/glm-5.2` on each invocation. pi does **not** support `modelRoles`, `advisor`, or `config.yml` — those are omp-only.
 
-### 5. PATH setup for pi
+### 4. PATH setup for pi
 
 pi is a Node.js application and requires `node` on PATH. If using nvm, ensure the node bin directory is in PATH:
 ```bash
@@ -222,7 +208,7 @@ export PATH="$HOME/.nvm/versions/node/v22.23.0/bin:$HOME/.bun/bin:$HOME/.local/b
 ```
 Add this to your shell profile (`~/.bashrc` or `~/.zshrc`) for persistence.
 
-### 6. Verify
+### 5. Verify
 
 Run `/pool-status` in omp/pi to see backend health, latency, and request counts:
 
