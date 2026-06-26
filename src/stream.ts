@@ -99,7 +99,17 @@ function toOpenAIMessages(messages: Message[]): Array<Record<string, unknown>> {
           return null;
         }).filter(Boolean);
 
-    return { role: msg.role, content } as Record<string, unknown>;
+    // The host (omp/pi) hands us messages with whatever role the upstream runtime
+    // produced — including the OpenAI "developer" system-role alias used for
+    // reasoning models (see pi-ai openai-completions.js: `useDeveloperRole ?
+    // "developer" : "system"`). pi-ai's Message type only declares
+    // user/assistant/toolResult, but the runtime injects extra roles untyped;
+    // the `as string` cast bypasses TS's literal-type narrowing so we can catch
+    // "developer" here. Non-OpenAI backends (GLM, Kimi, DeepSeek) reject
+    // "developer" with HTTP 400, so normalize it back to "system". Other roles
+    // are left as-is.
+    const role = (msg.role as string) === "developer" ? "system" : msg.role;
+    return { role, content } as Record<string, unknown>;
   });
 }
 

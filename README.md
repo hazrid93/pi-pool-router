@@ -452,6 +452,14 @@ Session A, Turn 6:  hash([session:abc] + system + user1) → backend A (SAME)
 | `headers` | object | | Extra headers to send |
 | `healthCheck` | boolean | `true` | Background 1-token completion probe every 60s |
 
+### Compatibility notes
+
+- **`input` advertises, it does not gate.** The `input` field tells the host which modalities a pool accepts (used for the host's `vision` model role). The router does **not** strip image content from a request before dispatch — if you send images to a text-only pool, the backends receive them and reject with HTTP 400 (`... is not a multimodal model`). Route vision requests to a pool whose members declare `"input": ["text", "image"]`.
+
+- **`developer` → `system` role normalization.** The host runs pi-ai's `openai-completions` provider upstream, which emits the OpenAI `"developer"` system-role alias for reasoning models (`useDeveloperRole ? "developer" : "system"`). Non-OpenAI backends (GLM, Kimi, DeepSeek) reject `"developer"` with HTTP 400 (`Model '...' does not support messages with role 'developer'`). `toOpenAIMessages` normalizes `developer` back to `system` before dispatch so non-OpenAI backends accept the message.
+
+- **Capabilities are read from `members[0]` only.** `index.ts` derives the host-visible `input`, `reasoning`, `contextWindow`, and `maxTokens` from the first member of each pool. If a pool mixes multimodal and text-only backends, put the most capable member first so the host advertises the full modality set.
+
 ## License
 
 MIT
